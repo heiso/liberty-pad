@@ -1,0 +1,23 @@
+{
+  "configurations": [
+    {
+      "name": "Firmware",
+      "compilerPath": "${env:IDF_TOOL_PATH}/xtensa-esp-elf/esp-14.2.0_20241119/xtensa-esp-elf/bin/xtensa-esp32-elf-gcc",
+      "compileCommands": "${workspaceFolder}/build/compile_commands.json",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "${workspaceFolder}/managed_components/**",
+        "${env:IDF_PATH}/components/**"
+      ],
+      "browse": {
+        "path": ["${env:IDF_PATH}/components", "${workspaceFolder}"],
+        "limitSymbolsToIncludedHeaders": true
+      }
+    }
+  ],
+  "env": {
+    "IDF_PATH": "${workspaceFolder}/esp-idf",
+    "IDF_TOOL_PATH": "~/.espressif/tools"
+  },
+  "version": 4
+}
