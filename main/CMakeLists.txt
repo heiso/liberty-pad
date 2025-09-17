@@ -1,2 +1,5 @@
-idf_component_register(SRCS "liberty-pad.c"
-                    INCLUDE_DIRS ".")
+idf_component_register(
+  SRCS "liberty-pad.c"
+  INCLUDE_DIRS "."
+  PRIV_REQUIRES esp_adc
+)

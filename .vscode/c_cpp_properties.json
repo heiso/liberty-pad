@@ -6,7 +6,7 @@
       "compileCommands": "${workspaceFolder}/build/compile_commands.json",
       "includePath": [
         "${workspaceFolder}/**",
-        "${workspaceFolder}/managed_components/**",
+        // "${workspaceFolder}/managed_components/**",
         "${env:IDF_PATH}/components/**"
       ],
       "browse": {
