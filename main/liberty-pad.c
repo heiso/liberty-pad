@@ -27,131 +27,123 @@ const uint32_t adc_channels[ADC_CHANNEL_COUNT] = {
 adc_continuous_handle_t adc_handle;
 static TaskHandle_t adc_task_handle;
 
-struct key_config key_configs[ADC_CHANNEL_COUNT] = { 0 };
-struct key_state key_states[ADC_CHANNEL_COUNT] = { 0 };
+struct key keys[ADC_CHANNEL_COUNT] = { 0 };
 
 void init_keys() {
   for (int i = 0; i < ADC_CHANNEL_COUNT; i++) {
-    key_configs[i].hardware.adc_channel = adc_channels[i];
-    key_configs[i].hardware.magnet_polarity = NORTH_POLE_FACING_DOWN;
+    keys[i].config.hardware.adc_channel = adc_channels[i];
+    keys[i].config.hardware.magnet_polarity = NORTH_POLE_FACING_DOWN;
 
-    key_configs[i].deadzones.start_offset = 17;
-    key_configs[i].deadzones.end_offset = 17;
-    key_configs[i].actuation_distance = 63; // 1mm
-    key_configs[i].release_distance = 50;   // <1mm
+    keys[i].config.deadzones.start_offset = 17;
+    keys[i].config.deadzones.end_offset = 17;
+    keys[i].config.actuation_distance = 63; // 1mm
+    keys[i].config.release_distance = 50;   // <1mm
 
-    key_configs[i].rapid_trigger.is_enabled = 1;
-    key_configs[i].rapid_trigger.is_continuous = 1;
-    key_configs[i].rapid_trigger.actuation_distance_delta = 31;
-    key_configs[i].rapid_trigger.release_distance_delta = 31;
+    keys[i].config.rapid_trigger.is_enabled = 1;
+    keys[i].config.rapid_trigger.is_continuous = 1;
+    keys[i].config.rapid_trigger.actuation_distance_delta = 31;
+    keys[i].config.rapid_trigger.release_distance_delta = 31;
+
+    keys[i].calibration.max_distance = MAX_DISTANCE_PRE_CALIBRATION;
   }
-  key_configs[0].hardware.adc_channel = ADC_CHANNEL_3; // up
-  key_configs[0].keycode = 0x52;                       // Up Arrow
-  key_configs[1].hardware.adc_channel = ADC_CHANNEL_4; // left
-  key_configs[1].keycode = 0x50;                       // Left Arrow
-  key_configs[2].hardware.adc_channel = ADC_CHANNEL_5; // down
-  key_configs[2].keycode = 0x51;                       // Down Arrow
-  key_configs[3].hardware.adc_channel = ADC_CHANNEL_6; // right
-  key_configs[3].keycode = 0x4F;                       // Right Arrow
-  key_configs[3].hardware.magnet_polarity = SOUTH_POLE_FACING_DOWN;
+  keys[0].config.hardware.adc_channel = ADC_CHANNEL_3; // up
+  keys[0].config.keycode = 0x52;                       // Up Arrow
+  keys[1].config.hardware.adc_channel = ADC_CHANNEL_4; // left
+  keys[1].config.keycode = 0x50;                       // Left Arrow
+  keys[2].config.hardware.adc_channel = ADC_CHANNEL_5; // down
+  keys[2].config.keycode = 0x51;                       // Down Arrow
+  keys[3].config.hardware.adc_channel = ADC_CHANNEL_6; // right
+  keys[3].config.keycode = 0x4F;                       // Right Arrow
+  keys[3].config.hardware.magnet_polarity = SOUTH_POLE_FACING_DOWN;
 }
 
 void update_key_state(adc_channel_t adc_channel, uint16_t raw_value) {
   struct key_state new_state = { 0 };
-  // Maybe this calibration data should be stored somewhere else?
-  new_state.calibration.idle_value = key_states[adc_channel].calibration.idle_value;
-  new_state.calibration.max_distance = key_states[adc_channel].calibration.max_distance;
-  if (new_state.calibration.max_distance == 0) {
-    new_state.calibration.max_distance = MAX_DISTANCE_PRE_CALIBRATION;
-  }
 
-  // This should also be copied from previous state, maybe there is a better way to do this?
-  new_state.is_idle = key_states[adc_channel].is_idle;
-  new_state.direction = key_states[adc_channel].direction;
-  new_state.from = key_states[adc_channel].from;
-  new_state.since = key_states[adc_channel].since;
-
-  if (key_configs[adc_channel].hardware.magnet_polarity == NORTH_POLE_FACING_DOWN) {
-    new_state.raw_adc_value = ADC_VREF - raw_value;
+  uint16_t normalized_value = 0;
+  if (keys[adc_channel].config.hardware.magnet_polarity == NORTH_POLE_FACING_DOWN) {
+    normalized_value = ADC_VREF - raw_value;
   } else {
-    new_state.raw_adc_value = raw_value;
+    normalized_value = raw_value;
   }
+
+  // new_state.raw_adc_value = normalized_value;
 
   // Initial calibration of IDLE value
   // Only for the first 2 seconds after task start
   if (xTaskGetTickCount() < pdMS_TO_TICKS(1000)) {
-    if (key_states[adc_channel].calibration.idle_value == 0) {
-      new_state.calibration.idle_value = new_state.raw_adc_value;
+    if (keys[adc_channel].calibration.idle_value == 0) {
+      keys[adc_channel].calibration.idle_value = normalized_value;
     } else {
       float delta = 0.6;
-      new_state.calibration.idle_value = (1 - delta) * new_state.raw_adc_value + delta * key_states[adc_channel].calibration.idle_value;
+      keys[adc_channel].calibration.idle_value = (1 - delta) * normalized_value + delta * keys[adc_channel].calibration.idle_value;
     }
 
-    key_states[adc_channel] = new_state;
+    keys[adc_channel].state = new_state;
     return;
   }
 
   // Calibrate idle value
-  if (new_state.raw_adc_value < key_states[adc_channel].calibration.idle_value) {
+  if (normalized_value < keys[adc_channel].calibration.idle_value) {
     float delta = 0.8;
-    new_state.calibration.idle_value = (1 - delta) * new_state.raw_adc_value + delta * key_states[adc_channel].calibration.idle_value;
-    new_state.raw_adc_value = key_states[adc_channel].calibration.idle_value;
+    keys[adc_channel].calibration.idle_value = (1 - delta) * normalized_value + delta * keys[adc_channel].calibration.idle_value;
   }
 
+  uint16_t distance = 0;
   // Get distance
-  if (new_state.raw_adc_value > new_state.calibration.idle_value) {
-    new_state.distance = new_state.raw_adc_value - new_state.calibration.idle_value;
+  if (normalized_value > keys[adc_channel].calibration.idle_value) {
+    distance = normalized_value - keys[adc_channel].calibration.idle_value;
   } else {
-    new_state.distance = 0;
+    distance = 0;
   }
 
   // Calibrate max distance value
-  if (new_state.distance > new_state.calibration.max_distance) {
-    new_state.calibration.max_distance = new_state.distance;
+  if (distance > keys[adc_channel].calibration.max_distance) {
+    keys[adc_channel].calibration.max_distance = distance;
   }
 
   // Get 8-bit distance
-  if (new_state.distance >= new_state.calibration.max_distance - key_configs[adc_channel].deadzones.end_offset) {
+  if (distance >= keys[adc_channel].calibration.max_distance - keys[adc_channel].config.deadzones.end_offset) {
     new_state.distance_8bits = 255;
-    new_state.is_idle = 0;
-  } else if (new_state.distance <= key_configs[adc_channel].deadzones.start_offset) {
+    keys[adc_channel].is_idle = 0;
+  } else if (distance <= keys[adc_channel].config.deadzones.start_offset) {
     new_state.distance_8bits = 0;
   } else {
-    new_state.distance_8bits = (new_state.distance * 255) / new_state.calibration.max_distance;
-    new_state.is_idle = 0;
+    new_state.distance_8bits = (distance * 255) / keys[adc_channel].calibration.max_distance;
+    keys[adc_channel].is_idle = 0;
   }
 
   // Update velocity
-  new_state.velocity = new_state.distance_8bits - key_states[adc_channel].distance_8bits;
+  new_state.velocity = new_state.distance_8bits - keys[adc_channel].state.distance_8bits;
 
-  new_state.acceleration = new_state.velocity - key_states[adc_channel].velocity;
-  new_state.jerk = new_state.acceleration - key_states[adc_channel].acceleration;
+  new_state.acceleration = new_state.velocity - keys[adc_channel].state.velocity;
+  new_state.jerk = new_state.acceleration - keys[adc_channel].state.acceleration;
 
+  // this should be moved in another function dedicated to update the direction and trigger/reset state. Maybe some state machine?
+  enum key_direction previous_direction = keys[adc_channel].direction;
   // Update direction
   if (new_state.distance_8bits == 0) {
-    new_state.direction = UP;
-    // new_state.from = 0;
+    keys[adc_channel].direction = UP;
+    // keys[adc_channel].from = 0;
   }
-
-  if (key_states[adc_channel].since == 0 || xTaskGetTickCount() - key_states[adc_channel].since > pdMS_TO_TICKS(MIN_TIME_BETWEEN_DIRECTION_CHANGE_MS)) {
-    if (new_state.velocity > 0 && key_states[adc_channel].velocity > 0 && key_states[adc_channel].direction != DOWN) {
-      new_state.direction = DOWN;
-      // if (key_states[adc_channel].from != 0) {
-      //   new_state.from = key_states[adc_channel].distance_8bits;
+  if (keys[adc_channel].since == 0 || xTaskGetTickCount() - keys[adc_channel].since > pdMS_TO_TICKS(MIN_TIME_BETWEEN_DIRECTION_CHANGE_MS)) {
+    if (new_state.velocity > 0 && keys[adc_channel].state.velocity > 0 && keys[adc_channel].direction != DOWN) {
+      keys[adc_channel].direction = DOWN;
+      // if (keys[adc_channel].state.from != 0) {
+      //   keys[adc_channel].from = keys[adc_channel].state.distance_8bits;
       // }
-    } else if (new_state.velocity < 0 && key_states[adc_channel].velocity > 0 && key_states[adc_channel].direction != UP) {
-      new_state.direction = UP;
-      // if (key_states[adc_channel].from != 255) {
-      //   new_state.from = key_states[adc_channel].distance_8bits;
+    } else if (new_state.velocity < 0 && keys[adc_channel].state.velocity > 0 && keys[adc_channel].direction != UP) {
+      keys[adc_channel].direction = UP;
+      // if (keys[adc_channel].state.from != 255) {
+      //   keys[adc_channel].from = keys[adc_channel].state.distance_8bits;
       // }
     }
   }
-
-  if (new_state.direction != key_states[adc_channel].direction || new_state.distance == 0) {
-    new_state.since = xTaskGetTickCount();
+  if (keys[adc_channel].direction != previous_direction || new_state.distance_8bits == 0) {
+    keys[adc_channel].since = xTaskGetTickCount();
   }
 
-  key_states[adc_channel] = new_state;
+  keys[adc_channel].state = new_state;
 }
 
 static bool IRAM_ATTR
@@ -241,8 +233,8 @@ void debug_task(void *pvParameters) {
     //      adc_channel++) {
     //   printf("%1d | ", adc_channel);
     //   printf("raw: %4d, ", key_states[adc_channel].raw_adc_value);
-    //   printf("cal_idle: %4d, ", key_states[adc_channel].calibration.idle_value);
-    //   printf("cal_max: %4d, ", key_states[adc_channel].calibration.max_distance);
+    //   printf("cal_idle: %4d, ", keys[adc_channel].calibration.idle_value);
+    //   printf("cal_max: %4d, ", keys[adc_channel].calibration.max_distance);
     //   printf("dist: %4d, ", key_states[adc_channel].distance);
     //   printf("dist8: %3d, ", key_states[adc_channel].distance_8bits);
     //   printf("dist: %3d, ", key_states[adc_channel].distance_8bits);
@@ -257,23 +249,23 @@ void debug_task(void *pvParameters) {
     //   } else {
     //     printf("%1d, ", key_states[adc_channel].direction);
     //   }
-    //   printf("start_offset: %2d, ", key_configs[adc_channel].deadzones.start_offset);
-    //   printf("end_offset: %2d, ", key_configs[adc_channel].deadzones.end_offset);
+    //   printf("start_offset: %2d, ", keys[adc_channel].config.deadzones.start_offset);
+    //   printf("end_offset: %2d, ", keys[adc_channel].config.deadzones.end_offset);
     //   printf("\n");
     // }
     printf("dist:");
-    printf("%d", key_states[0].distance_8bits);
+    printf("%d", keys[0].state.distance_8bits);
     printf(",");
     printf("velo:");
-    printf("%d", key_states[0].velocity);
+    printf("%d", keys[0].state.velocity);
     printf(",");
     printf("dir:");
-    printf("%d", key_states[0].direction);
+    printf("%d", keys[0].direction);
     // printf("acc:");
-    // printf("%d", key_states[0].acceleration);
+    // printf("%d", keys[0].acceleration);
     // printf(",");
     // printf("jerk:");
-    // printf("%d", key_states[0].jerk);
+    // printf("%d", keys[0].jerk);
     printf("\n");
 
     vTaskDelay(pdMS_TO_TICKS(5));

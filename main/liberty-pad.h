@@ -40,32 +40,36 @@ struct key_config {
   uint16_t keycode;
 };
 
-struct calibration {
+struct key_calibration {
   uint16_t idle_value;
   uint16_t max_distance;
 };
 
-enum direction {
+enum key_direction {
   UP,
   DOWN,
 };
 
 struct key_state {
-  uint8_t is_idle;
-
-  struct calibration calibration;
-
-  uint16_t raw_adc_value;
-  uint16_t distance;
+  // uint16_t raw_adc_value;
+  // uint16_t distance;
   uint8_t distance_8bits;
   int8_t velocity;
   int8_t acceleration;
   int8_t jerk;
+};
+
+struct key {
+  struct key_config config;
+  struct key_calibration calibration;
+  struct key_state state;
+
+  uint8_t is_idle;
+  enum key_direction direction;
   // Distance from where the travel has begun
   uint8_t from;
   // Time since the travel has begun
   uint32_t since;
-  enum direction direction;
 };
 
 // Switch profile lookup table
