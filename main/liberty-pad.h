@@ -53,10 +53,16 @@ enum key_direction {
 struct key_state {
   // uint16_t raw_adc_value;
   // uint16_t distance;
-  uint8_t distance_8bits;
-  int8_t velocity;
-  int8_t acceleration;
-  int8_t jerk;
+  uint8_t distance;
+  // int8_t velocity;
+  // int8_t acceleration;
+  // int8_t jerk;
+};
+
+enum key_status {
+  STATUS_RESET,
+  STATUS_RAPID_TRIGGER_RESET,
+  STATUS_TRIGGERED,
 };
 
 struct key {
@@ -70,6 +76,8 @@ struct key {
   uint8_t from;
   // Time since the travel has begun
   uint32_t since;
+  enum key_status status;
+  uint32_t triggered_at;
 };
 
 // Switch profile lookup table

@@ -45,6 +45,7 @@ void init_keys() {
     keys[i].config.rapid_trigger.release_distance_delta = 31;
 
     keys[i].calibration.max_distance = MAX_DISTANCE_PRE_CALIBRATION;
+    keys[i].status = STATUS_RESET;
   }
   keys[0].config.hardware.adc_channel = ADC_CHANNEL_3; // up
   keys[0].config.keycode = 0x52;                       // Up Arrow
@@ -104,46 +105,82 @@ void update_key_state(adc_channel_t adc_channel, uint16_t raw_value) {
 
   // Get 8-bit distance
   if (distance >= keys[adc_channel].calibration.max_distance - keys[adc_channel].config.deadzones.end_offset) {
-    new_state.distance_8bits = 255;
+    new_state.distance = 255;
     keys[adc_channel].is_idle = 0;
   } else if (distance <= keys[adc_channel].config.deadzones.start_offset) {
-    new_state.distance_8bits = 0;
+    new_state.distance = 0;
   } else {
-    new_state.distance_8bits = (distance * 255) / keys[adc_channel].calibration.max_distance;
+    new_state.distance = (distance * 255) / keys[adc_channel].calibration.max_distance;
     keys[adc_channel].is_idle = 0;
   }
 
-  // Update velocity
-  new_state.velocity = new_state.distance_8bits - keys[adc_channel].state.distance_8bits;
+  // // Update velocity
+  // new_state.velocity = new_state.distance - keys[adc_channel].state.distance;
 
-  new_state.acceleration = new_state.velocity - keys[adc_channel].state.velocity;
-  new_state.jerk = new_state.acceleration - keys[adc_channel].state.acceleration;
+  // new_state.acceleration = new_state.velocity - keys[adc_channel].state.velocity;
+  // new_state.jerk = new_state.acceleration - keys[adc_channel].state.acceleration;
 
-  // this should be moved in another function dedicated to update the direction and trigger/reset state. Maybe some state machine?
-  enum key_direction previous_direction = keys[adc_channel].direction;
-  // Update direction
-  if (new_state.distance_8bits == 0) {
-    keys[adc_channel].direction = UP;
-    // keys[adc_channel].from = 0;
-  }
-  if (keys[adc_channel].since == 0 || xTaskGetTickCount() - keys[adc_channel].since > pdMS_TO_TICKS(MIN_TIME_BETWEEN_DIRECTION_CHANGE_MS)) {
-    if (new_state.velocity > 0 && keys[adc_channel].state.velocity > 0 && keys[adc_channel].direction != DOWN) {
-      keys[adc_channel].direction = DOWN;
-      // if (keys[adc_channel].state.from != 0) {
-      //   keys[adc_channel].from = keys[adc_channel].state.distance_8bits;
-      // }
-    } else if (new_state.velocity < 0 && keys[adc_channel].state.velocity > 0 && keys[adc_channel].direction != UP) {
-      keys[adc_channel].direction = UP;
-      // if (keys[adc_channel].state.from != 255) {
-      //   keys[adc_channel].from = keys[adc_channel].state.distance_8bits;
-      // }
-    }
-  }
-  if (keys[adc_channel].direction != previous_direction || new_state.distance_8bits == 0) {
-    keys[adc_channel].since = xTaskGetTickCount();
-  }
+  // // This should be moved in another function dedicated to update the direction and trigger/reset state. Maybe some state machine?
+  // // Not needed for this project as everykey is mutually exclusive (kind of SOCD)
+  // enum key_direction previous_direction = keys[adc_channel].direction;
+  // // Update direction
+  // if (new_state.distance == 0) {
+  //   keys[adc_channel].direction = UP;
+  //   // keys[adc_channel].from = 0;
+  // }
+  // if (keys[adc_channel].since == 0 || xTaskGetTickCount() - keys[adc_channel].since > pdMS_TO_TICKS(MIN_TIME_BETWEEN_DIRECTION_CHANGE_MS)) {
+  //   if (new_state.velocity > 0 && keys[adc_channel].state.velocity > 0 && keys[adc_channel].direction != DOWN) {
+  //     keys[adc_channel].direction = DOWN;
+  //     // if (keys[adc_channel].state.from != 0) {
+  //     //   keys[adc_channel].from = keys[adc_channel].state.distance;
+  //     // }
+  //   } else if (new_state.velocity < 0 && keys[adc_channel].state.velocity > 0 && keys[adc_channel].direction != UP) {
+  //     keys[adc_channel].direction = UP;
+  //     // if (keys[adc_channel].state.from != 255) {
+  //     //   keys[adc_channel].from = keys[adc_channel].state.distance;
+  //     // }
+  //   }
+  // }
+  // if (keys[adc_channel].direction != previous_direction || new_state.distance == 0) {
+  //   keys[adc_channel].since = xTaskGetTickCount();
+  // }
 
   keys[adc_channel].state = new_state;
+}
+
+void update_keys() {
+  for (int i = 0; i < ADC_CHANNEL_COUNT; i++) {
+    switch (keys[i].status) {
+    case STATUS_RESET:
+      if (keys[i].state.distance >= keys[i].config.actuation_distance) {
+        keys[i].status = STATUS_TRIGGERED;
+        keys[i].triggered_at = xTaskGetTickCount();
+      }
+      break;
+    case STATUS_TRIGGERED:
+      if (keys[i].state.distance <= keys[i].config.release_distance) {
+        keys[i].status = STATUS_RESET;
+        keys[i].triggered_at = 0;
+      }
+      break;
+    default:
+      break;
+    }
+  }
+}
+
+uint8_t get_last_triggered_key_index() {
+  uint8_t last_triggered_key = 255;
+  uint32_t last_triggered_at = 0;
+  for (int i = 0; i < ADC_CHANNEL_COUNT; i++) {
+    if (keys[i].status == STATUS_TRIGGERED) {
+      if (keys[i].triggered_at > last_triggered_at) {
+        last_triggered_at = keys[i].triggered_at;
+        last_triggered_key = i;
+      }
+    }
+  }
+  return last_triggered_key;
 }
 
 static bool IRAM_ATTR
@@ -227,48 +264,38 @@ void adc_task(void *pvParameters) {
 
 void debug_task(void *pvParameters) {
   while (1) {
+    update_keys();
 
-    // printf("\033[H\033[J");
+    printf("\033[H\033[J");
     // for (uint8_t adc_channel = 0; adc_channel < ADC_CHANNEL_COUNT;
     //      adc_channel++) {
-    //   printf("%1d | ", adc_channel);
-    //   printf("raw: %4d, ", key_states[adc_channel].raw_adc_value);
-    //   printf("cal_idle: %4d, ", keys[adc_channel].calibration.idle_value);
-    //   printf("cal_max: %4d, ", keys[adc_channel].calibration.max_distance);
-    //   printf("dist: %4d, ", key_states[adc_channel].distance);
-    //   printf("dist8: %3d, ", key_states[adc_channel].distance_8bits);
-    //   printf("dist: %3d, ", key_states[adc_channel].distance_8bits);
-    //   printf("velo: %3d, ", key_states[adc_channel].velocity);
-    //   printf("acc: %3d, ", key_states[adc_channel].acceleration);
-    //   printf("jerk: %3d, ", key_states[adc_channel].jerk);
-    //   printf("dir: ");
-    //   if (key_states[adc_channel].direction == DOWN) {
-    //     printf("DOWN, ");
-    //   } else if (key_states[adc_channel].direction == UP) {
-    //     printf("UP, ");
-    //   } else {
-    //     printf("%1d, ", key_states[adc_channel].direction);
-    //   }
-    //   printf("start_offset: %2d, ", keys[adc_channel].config.deadzones.start_offset);
-    //   printf("end_offset: %2d, ", keys[adc_channel].config.deadzones.end_offset);
-    //   printf("\n");
+    // printf("%1d | ", adc_channel);
+    // // printf("raw: %4d, ", keys[adc_channel].raw_adc_value);
+    // printf("cal_idle: %4d, ", keys[adc_channel].calibration.idle_value);
+    // printf("cal_max: %4d, ", keys[adc_channel].calibration.max_distance);
+    // // printf("dist: %4d, ", keys[adc_channel].state.distance);
+    // printf("dist8: %3d, ", keys[adc_channel].state.distance);
+    // printf("velo: %3d, ", keys[adc_channel].state.velocity);
+    // printf("acc: %3d, ", keys[adc_channel].state.acceleration);
+    // printf("jerk: %3d, ", keys[adc_channel].state.jerk);
+    // printf("dir: ");
+    // if (keys[adc_channel].direction == DOWN) {
+    //   printf("DOWN, ");
+    // } else if (keys[adc_channel].direction == UP) {
+    //   printf("UP, ");
+    // } else {
+    //   printf("%1d, ", keys[adc_channel].direction);
     // }
-    printf("dist:");
-    printf("%d", keys[0].state.distance_8bits);
-    printf(",");
-    printf("velo:");
-    printf("%d", keys[0].state.velocity);
-    printf(",");
-    printf("dir:");
-    printf("%d", keys[0].direction);
-    // printf("acc:");
-    // printf("%d", keys[0].acceleration);
-    // printf(",");
-    // printf("jerk:");
-    // printf("%d", keys[0].jerk);
+    // printf("start_offset: %2d, ", keys[adc_channel].config.deadzones.start_offset);
+    // printf("end_offset: %2d, ", keys[adc_channel].config.deadzones.end_offset);
+    // }
+    uint8_t index = get_last_triggered_key_index();
+    if (index != 255) {
+      printf("%3d", index);
+    }
     printf("\n");
 
-    vTaskDelay(pdMS_TO_TICKS(5));
+    vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
 
