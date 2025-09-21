@@ -1,18 +1,17 @@
 #include "liberty-pad.h"
-#include "esp_adc/adc_continuous.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "hid.h"
 #include "sdkconfig.h"
+#include "sensor.h"
 #include <stdio.h>
 #include <string.h>
 
 static const char *TAG = "LIBERTY_PAD";
 
 #define ADC_CHANNEL_COUNT 4
-#define CONVERSION_FRAME_SIZE (SOC_ADC_DIGI_DATA_BYTES_PER_CONV * ADC_CHANNEL_COUNT)
-#define CONVERSION_POOL_SIZE CONVERSION_FRAME_SIZE * 1
 #define ADC_VREF 3300
 #define MAX_DISTANCE_PRE_CALIBRATION 500
 #define MIN_TIME_BETWEEN_DIRECTION_CHANGE_MS 100
@@ -24,9 +23,6 @@ const uint32_t adc_channels[ADC_CHANNEL_COUNT] = {
   ADC_CHANNEL_6, // right
 };
 
-adc_continuous_handle_t adc_handle;
-static TaskHandle_t adc_task_handle;
-
 struct key keys[ADC_CHANNEL_COUNT] = { 0 };
 
 void init_keys() {
@@ -36,8 +32,8 @@ void init_keys() {
 
     keys[i].config.deadzones.start_offset = 17;
     keys[i].config.deadzones.end_offset = 17;
-    keys[i].config.actuation_distance = 63; // 1mm
-    keys[i].config.release_distance = 50;   // <1mm
+    keys[i].config.actuation_distance = 128;
+    keys[i].config.release_distance = 127;
 
     keys[i].config.rapid_trigger.is_enabled = 1;
     keys[i].config.rapid_trigger.is_continuous = 1;
@@ -48,13 +44,13 @@ void init_keys() {
     keys[i].status = STATUS_RESET;
   }
   keys[0].config.hardware.adc_channel = ADC_CHANNEL_3; // up
-  keys[0].config.keycode = 0x52;                       // Up Arrow
+  keys[0].config.keycode = HID_KEY_UP;                 // Up Arrow
   keys[1].config.hardware.adc_channel = ADC_CHANNEL_4; // left
-  keys[1].config.keycode = 0x50;                       // Left Arrow
+  keys[1].config.keycode = HID_KEY_LEFT;               // Left Arrow
   keys[2].config.hardware.adc_channel = ADC_CHANNEL_5; // down
-  keys[2].config.keycode = 0x51;                       // Down Arrow
+  keys[2].config.keycode = HID_KEY_DOWN;               // Down Arrow
   keys[3].config.hardware.adc_channel = ADC_CHANNEL_6; // right
-  keys[3].config.keycode = 0x4F;                       // Right Arrow
+  keys[3].config.keycode = HID_KEY_RIGHT;              // Right Arrow
   keys[3].config.hardware.magnet_polarity = SOUTH_POLE_FACING_DOWN;
 }
 
@@ -148,27 +144,6 @@ void update_key_state(adc_channel_t adc_channel, uint16_t raw_value) {
   keys[adc_channel].state = new_state;
 }
 
-void update_keys() {
-  for (int i = 0; i < ADC_CHANNEL_COUNT; i++) {
-    switch (keys[i].status) {
-    case STATUS_RESET:
-      if (keys[i].state.distance >= keys[i].config.actuation_distance) {
-        keys[i].status = STATUS_TRIGGERED;
-        keys[i].triggered_at = xTaskGetTickCount();
-      }
-      break;
-    case STATUS_TRIGGERED:
-      if (keys[i].state.distance <= keys[i].config.release_distance) {
-        keys[i].status = STATUS_RESET;
-        keys[i].triggered_at = 0;
-      }
-      break;
-    default:
-      break;
-    }
-  }
-}
-
 uint8_t get_last_triggered_key_index() {
   uint8_t last_triggered_key = 255;
   uint32_t last_triggered_at = 0;
@@ -183,90 +158,47 @@ uint8_t get_last_triggered_key_index() {
   return last_triggered_key;
 }
 
-static bool IRAM_ATTR
-on_conversion_done_cb(adc_continuous_handle_t handle,
-                      const adc_continuous_evt_data_t *edata, void *user_data) {
-  BaseType_t mustYield = pdFALSE;
-  // Notify that ADC continuous driver has done enough number of conversions
-  vTaskNotifyGiveFromISR(adc_task_handle, &mustYield);
-
-  return (mustYield == pdTRUE);
-}
-
-static void adc_init() {
-  //-------------ADC Init---------------//
-  adc_continuous_handle_cfg_t adc_config = {
-    .max_store_buf_size = CONVERSION_POOL_SIZE,
-    .conv_frame_size = CONVERSION_FRAME_SIZE,
-    .flags = { .flush_pool = 1 }
-  };
-  ESP_ERROR_CHECK(adc_continuous_new_handle(&adc_config, &adc_handle));
-
-  //-------------ADC Config---------------//
-  adc_continuous_config_t config = {
-    .pattern_num = ADC_CHANNEL_COUNT,
-    .sample_freq_hz = SOC_ADC_SAMPLE_FREQ_THRES_HIGH,
-    .conv_mode = ADC_CONV_SINGLE_UNIT_1,
-    .format = ADC_DIGI_OUTPUT_FORMAT_TYPE2,
-  };
-
-  adc_digi_pattern_config_t adc_pattern[ADC_CHANNEL_COUNT] = { 0 };
-  for (int i = 0; i < ADC_CHANNEL_COUNT; i++) {
-    adc_pattern[i].atten = ADC_ATTEN_DB_12;
-    adc_pattern[i].channel = adc_channels[i];
-    adc_pattern[i].unit = ADC_UNIT_1;
-    adc_pattern[i].bit_width = SOC_ADC_DIGI_MAX_BITWIDTH;
-
-    ESP_LOGI(TAG, "adc_pattern[%d].channel is :%" PRIx8, i,
-             adc_pattern[i].channel);
-  }
-  config.adc_pattern = adc_pattern;
-  ESP_ERROR_CHECK(adc_continuous_config(adc_handle, &config));
-
-  adc_continuous_evt_cbs_t callbacks = {
-    .on_conv_done = on_conversion_done_cb,
-  };
-  ESP_ERROR_CHECK(
-      adc_continuous_register_event_callbacks(adc_handle, &callbacks, NULL));
-}
-
-void adc_task(void *pvParameters) {
-  adc_task_handle = xTaskGetCurrentTaskHandle();
-  uint32_t conversion_frame_real_size = 0;
-  uint8_t conversions[CONVERSION_FRAME_SIZE] = { 0 };
-  memset(conversions, 0, CONVERSION_FRAME_SIZE);
-
+void update_keys(void *pvParameters) {
   while (1) {
-    ESP_ERROR_CHECK(adc_continuous_start(adc_handle));
-    vTaskDelay(1);
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    uint8_t last_triggered_key = 255;
+    uint32_t last_triggered_at = 0;
 
-    adc_continuous_read(adc_handle, conversions, CONVERSION_FRAME_SIZE,
-                        &conversion_frame_real_size, 0);
-
-    ESP_ERROR_CHECK(adc_continuous_stop(adc_handle));
-
-    for (uint8_t conversion_result_index = 0;
-         conversion_result_index < conversion_frame_real_size;
-         conversion_result_index += SOC_ADC_DIGI_DATA_BYTES_PER_CONV) {
-      adc_digi_output_data_t *conversion_frame =
-          (adc_digi_output_data_t *)&conversions[conversion_result_index];
-      for (uint8_t adc_channel = 0; adc_channel < ADC_CHANNEL_COUNT;
-           adc_channel++) {
-        if (conversion_frame->type2.channel == adc_channels[adc_channel]) {
-          update_key_state(adc_channel, conversion_frame->type2.data);
-          break;
+    for (int i = 0; i < ADC_CHANNEL_COUNT; i++) {
+      switch (keys[i].status) {
+      case STATUS_RESET:
+        if (keys[i].state.distance >= keys[i].config.actuation_distance) {
+          keys[i].status = STATUS_TRIGGERED;
+          keys[i].triggered_at = xTaskGetTickCount();
+          if (keys[i].triggered_at > last_triggered_at) {
+            last_triggered_at = keys[i].triggered_at;
+            last_triggered_key = i;
+          }
         }
+        break;
+      case STATUS_TRIGGERED:
+        if (keys[i].state.distance <= keys[i].config.release_distance) {
+          keys[i].status = STATUS_RESET;
+          keys[i].triggered_at = 0;
+        }
+        break;
+      default:
+        break;
       }
     }
+
+    if (last_triggered_key == 255) {
+      hid_send_empty();
+    } else {
+      hid_send_key(keys[last_triggered_key].config.keycode);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
 
 void debug_task(void *pvParameters) {
   while (1) {
-    update_keys();
-
-    printf("\033[H\033[J");
+    // printf("\033[H\033[J");
     // for (uint8_t adc_channel = 0; adc_channel < ADC_CHANNEL_COUNT;
     //      adc_channel++) {
     // printf("%1d | ", adc_channel);
@@ -292,17 +224,26 @@ void debug_task(void *pvParameters) {
     uint8_t index = get_last_triggered_key_index();
     if (index != 255) {
       printf("%3d", index);
+      printf("\n");
+      // hid_send_key(keys[index].config.keycode, 1);
     }
-    printf("\n");
 
     vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
 
 void app_main(void) {
+  // Initialize HID first
+  esp_err_t ret = hid_init();
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to initialize HID: %s", esp_err_to_name(ret));
+    return;
+  }
+
   adc_init();
   init_keys();
 
   xTaskCreate(adc_task, "adc_task", 4096, NULL, 10, NULL);
-  xTaskCreate(debug_task, "debug_task", 2048, NULL, 5, NULL);
+  xTaskCreate(update_keys, "update_keys", 2048, NULL, 10, NULL);
+  // xTaskCreate(debug_task, "debug_task", 2048, NULL, 5, NULL);
 }

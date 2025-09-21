@@ -18,6 +18,13 @@
     "tuple": "c",
     "type_traits": "c",
     "utility": "c",
-    "ranges": "c"
+    "ranges": "c",
+    "esp_hidd_prf_api.h": "c",
+    "esp_gatt_defs.h": "c",
+    "esp_bt.h": "c",
+    "stdbool.h": "c",
+    "esp_system.h": "c",
+    "string.h": "c",
+    "esp_gap_ble_api.h": "c"
   }
 }
