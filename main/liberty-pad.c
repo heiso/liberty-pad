@@ -17,10 +17,10 @@ static const char *TAG = "LIBERTY_PAD";
 #define MIN_TIME_BETWEEN_DIRECTION_CHANGE_MS 100
 
 const uint32_t adc_channels[ADC_CHANNEL_COUNT] = {
-  ADC_CHANNEL_3, // up
-  ADC_CHANNEL_4, // left
-  ADC_CHANNEL_5, // down
-  ADC_CHANNEL_6, // right
+  ADC_CHANNEL_3,
+  ADC_CHANNEL_4,
+  ADC_CHANNEL_5,
+  ADC_CHANNEL_6,
 };
 
 struct key keys[ADC_CHANNEL_COUNT] = { 0 };
@@ -43,15 +43,14 @@ void init_keys() {
     keys[i].calibration.max_distance = MAX_DISTANCE_PRE_CALIBRATION;
     keys[i].status = STATUS_RESET;
   }
-  keys[0].config.hardware.adc_channel = ADC_CHANNEL_3; // up
-  keys[0].config.keycode = HID_KEY_UP;                 // Up Arrow
-  keys[1].config.hardware.adc_channel = ADC_CHANNEL_4; // left
-  keys[1].config.keycode = HID_KEY_LEFT;               // Left Arrow
-  keys[2].config.hardware.adc_channel = ADC_CHANNEL_5; // down
-  keys[2].config.keycode = HID_KEY_DOWN;               // Down Arrow
-  keys[3].config.hardware.adc_channel = ADC_CHANNEL_6; // right
-  keys[3].config.keycode = HID_KEY_RIGHT;              // Right Arrow
-  keys[3].config.hardware.magnet_polarity = SOUTH_POLE_FACING_DOWN;
+  keys[0].config.hardware.adc_channel = ADC_CHANNEL_3;
+  keys[0].config.keycode = HID_KEY_RIGHT;
+  keys[1].config.hardware.adc_channel = ADC_CHANNEL_4;
+  keys[1].config.keycode = HID_KEY_LEFT;
+  keys[2].config.hardware.adc_channel = ADC_CHANNEL_5;
+  keys[2].config.keycode = HID_KEY_DOWN;
+  keys[3].config.hardware.adc_channel = ADC_CHANNEL_6;
+  keys[3].config.keycode = HID_KEY_UP;
 }
 
 void update_key_state(adc_channel_t adc_channel, uint16_t raw_value) {
