@@ -1,7 +1,9 @@
 #include "sensor.h"
+#include "esp_hidd_prf_api.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "hid.h"
 #include "main.h"
 #include "sdkconfig.h"
 #include <string.h>
@@ -17,7 +19,6 @@ adc_continuous_handle_t adc_handle;
 static TaskHandle_t adc_task_handle;
 
 extern void update_key_state(adc_channel_t adc_channel, uint16_t raw_value);
-extern void update_battery_voltage(uint16_t raw_value);
 
 static bool IRAM_ATTR
 on_conversion_done_cb(adc_continuous_handle_t handle,
@@ -64,6 +65,28 @@ void adc_init() {
   };
   ESP_ERROR_CHECK(
       adc_continuous_register_event_callbacks(adc_handle, &callbacks, NULL));
+}
+
+void update_battery_voltage(uint16_t raw_value) {
+  if (hid_is_connected()) {
+    static uint8_t battery_lev = 0;
+    uint8_t new_battery_lev = 0;
+    uint16_t voltage = raw_value * 2;
+    // Convert voltage to percentage (assuming 3.0V min, 4.2V max for Li-ion)
+    if (voltage >= 4200) {
+      new_battery_lev = 100;
+    } else if (voltage <= 3000) {
+      new_battery_lev = 0;
+    } else {
+      new_battery_lev = ((voltage - 3000) * 100) / (4200 - 3000);
+    }
+
+    if (new_battery_lev != battery_lev) {
+      battery_lev = new_battery_lev;
+      // Send battery level to BLE host if connected
+      esp_hidd_send_battery_level(hid_get_conn_id(), battery_lev);
+    }
+  }
 }
 
 void adc_task(void *pvParameters) {

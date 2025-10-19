@@ -25,6 +25,8 @@
     "stdbool.h": "c",
     "esp_system.h": "c",
     "string.h": "c",
-    "esp_gap_ble_api.h": "c"
+    "esp_gap_ble_api.h": "c",
+    "esp_gatts_api.h": "c",
+    "hid.h": "c"
   }
 }

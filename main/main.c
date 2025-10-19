@@ -180,7 +180,7 @@ void update_keys(void *pvParameters) {
     }
 
     if (should_send_report) {
-      hid_send_keycodes(*keycodes, keycodes_length);
+      hid_send_keys(0, keycodes, keycodes_length);
     }
 
     if (keycodes_length > 0) {
@@ -191,52 +191,6 @@ void update_keys(void *pvParameters) {
 
     vTaskDelay(pdMS_TO_TICKS(10));
   }
-}
-
-void debug_task(void *pvParameters) {
-  while (1) {
-    // printf("\033[H\033[J");
-    // for (uint8_t adc_channel = 0; adc_channel < ADC_CHANNEL_COUNT;
-    //      adc_channel++) {
-    // printf("%1d | ", adc_channel);
-    // // printf("raw: %4d, ", keys[adc_channel].raw_adc_value);
-    // printf("cal_idle: %4d, ", keys[adc_channel].calibration.idle_value);
-    // printf("cal_max: %4d, ", keys[adc_channel].calibration.max_distance);
-    // // printf("dist: %4d, ", keys[adc_channel].state.distance);
-    // printf("dist8: %3d, ", keys[adc_channel].state.distance);
-    // printf("velo: %3d, ", keys[adc_channel].state.velocity);
-    // printf("acc: %3d, ", keys[adc_channel].state.acceleration);
-    // printf("jerk: %3d, ", keys[adc_channel].state.jerk);
-    // printf("dir: ");
-    // if (keys[adc_channel].direction == DOWN) {
-    //   printf("DOWN, ");
-    // } else if (keys[adc_channel].direction == UP) {
-    //   printf("UP, ");
-    // } else {
-    //   printf("%1d, ", keys[adc_channel].direction);
-    // }
-    // printf("start_offset: %2d, ", keys[adc_channel].config.deadzones.start_offset);
-    // printf("end_offset: %2d, ", keys[adc_channel].config.deadzones.end_offset);
-    // }
-
-    vTaskDelay(pdMS_TO_TICKS(50));
-  }
-}
-
-void update_battery_voltage(uint16_t raw_value) {
-  uint8_t battery_lev = 0;
-  uint16_t voltage = raw_value * 2;
-  // Convert voltage to percentage (assuming 3.0V min, 4.2V max for Li-ion)
-  if (voltage >= 4200) {
-    battery_lev = 100;
-  } else if (voltage <= 3000) {
-    battery_lev = 0;
-  } else {
-    battery_lev = ((voltage - 3000) * 100) / (4200 - 3000);
-  }
-  ESP_LOGI(TAG, "Battery voltage: %dmV", voltage);
-  ESP_LOGI(TAG, "Battery level: %d%%", battery_lev);
-  // Here you can add code to handle low battery warnings or other logic
 }
 
 void app_main(void) {
@@ -252,5 +206,4 @@ void app_main(void) {
 
   xTaskCreate(adc_task, "adc_task", 4096, NULL, 10, NULL);
   xTaskCreate(update_keys, "update_keys", 2048, NULL, 10, NULL);
-  // xTaskCreate(debug_task, "debug_task", 2048, NULL, 5, NULL);
 }

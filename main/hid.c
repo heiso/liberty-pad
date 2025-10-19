@@ -14,7 +14,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
-#include "hid_dev.h"
 #include "nvs_flash.h"
 #include <stdbool.h>
 #include <stdio.h>
@@ -209,27 +208,30 @@ bool hid_is_connected(void) {
   return sec_conn;
 }
 
-esp_err_t hid_send_keycodes(uint8_t keycode, size_t length) {
-  if (sec_conn) {
-    esp_hidd_send_keyboard_value(hid_conn_id, 0, &keycode, length);
-    return ESP_OK;
-  }
-  return ESP_FAIL;
+uint16_t hid_get_conn_id(void) {
+  return hid_conn_id;
 }
 
-esp_err_t hid_send_key(uint8_t keycode) {
-  if (sec_conn) {
-    esp_hidd_send_keyboard_value(hid_conn_id, 0, &keycode, 1);
-    return ESP_OK;
+esp_err_t hid_send_keys(uint8_t modifier, uint8_t keycodes[6], uint8_t keycodes_length) {
+  if (!sec_conn) {
+    return ESP_FAIL;
   }
-  return ESP_FAIL;
+
+  if (keycodes_length > 6) {
+    keycodes_length = 6;
+  }
+
+  esp_hidd_send_keyboard_value(hid_conn_id, modifier, keycodes, keycodes_length);
+  return ESP_OK;
 }
 
-esp_err_t hid_send_empty() {
-  if (sec_conn) {
-    uint8_t empty_key = 0;
-    esp_hidd_send_keyboard_value(hid_conn_id, 0, &empty_key, 1);
-    return ESP_OK;
+esp_err_t hid_send_consumer(uint16_t usage_code) {
+  if (!sec_conn) {
+    return ESP_FAIL;
   }
-  return ESP_FAIL;
+
+  esp_hidd_send_consumer_value(hid_conn_id, usage_code, true);
+  vTaskDelay(50 / portTICK_PERIOD_MS);
+  esp_hidd_send_consumer_value(hid_conn_id, usage_code, false);
+  return ESP_OK;
 }

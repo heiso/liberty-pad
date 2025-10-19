@@ -13,7 +13,26 @@
 #include "esp_gatt_defs.h"
 #include "esp_hidd_prf_api.h"
 #include "esp_gap_ble_api.h"
-#include "hid_dev.h"
+// HID report mapping table
+typedef struct
+{
+  uint16_t    handle;           // Handle of report characteristic
+  uint16_t    cccdHandle;       // Handle of CCCD for report characteristic
+  uint8_t     id;               // Report ID
+  uint8_t     type;             // Report type
+  uint8_t     mode;             // Protocol mode (report or boot)
+} hid_report_map_t;
+
+// HID Report types
+#define HID_TYPE_INPUT       1
+#define HID_TYPE_OUTPUT      2
+#define HID_TYPE_FEATURE     3
+
+// Function declarations for HID operations
+void hid_dev_register_reports(uint8_t num_reports, hid_report_map_t *p_report);
+void hid_dev_send_report(esp_gatt_if_t gatts_if, uint16_t conn_id,
+                        uint8_t id, uint8_t type, uint8_t length, uint8_t *data);
+void hid_consumer_build_report(uint8_t *buffer, uint8_t cmd);
 
 #define SUPPORT_REPORT_VENDOR                 false
 //HID BLE profile log tag
