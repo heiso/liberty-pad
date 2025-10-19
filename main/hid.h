@@ -44,3 +44,5 @@ esp_err_t hid_send_key(uint8_t keycode);
  * @return esp_err_t ESP_OK on success, error code otherwise
  */
 esp_err_t hid_send_empty();
+
+esp_err_t hid_send_keycodes(uint8_t keycode, size_t length);

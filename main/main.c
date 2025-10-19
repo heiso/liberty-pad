@@ -1,4 +1,4 @@
-#include "liberty-pad.h"
+#include "main.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -11,7 +11,7 @@
 
 static const char *TAG = "LIBERTY_PAD";
 
-#define ADC_CHANNEL_COUNT 4
+#define KEYS_COUNT 4
 #define ADC_VREF 3300
 #define MAX_DISTANCE_PRE_CALIBRATION 500
 #define MIN_TIME_BETWEEN_DIRECTION_CHANGE_MS 100
@@ -21,12 +21,13 @@ const uint32_t adc_channels[ADC_CHANNEL_COUNT] = {
   ADC_CHANNEL_4,
   ADC_CHANNEL_5,
   ADC_CHANNEL_6,
+  ADC_CHANNEL_0, // Battery voltage on ADC_CHANNEL_0
 };
 
-struct key keys[ADC_CHANNEL_COUNT] = { 0 };
+struct key keys[KEYS_COUNT] = { 0 };
 
 void init_keys() {
-  for (int i = 0; i < ADC_CHANNEL_COUNT; i++) {
+  for (int i = 0; i < KEYS_COUNT; i++) {
     keys[i].config.hardware.adc_channel = adc_channels[i];
     keys[i].config.hardware.magnet_polarity = NORTH_POLE_FACING_DOWN;
 
@@ -109,6 +110,10 @@ void update_key_state(adc_channel_t adc_channel, uint16_t raw_value) {
     keys[adc_channel].is_idle = 0;
   }
 
+  keys[adc_channel].state = new_state;
+}
+
+void update_key_direction(struct key *key) {
   // // Update velocity
   // new_state.velocity = new_state.distance - keys[adc_channel].state.distance;
 
@@ -139,39 +144,23 @@ void update_key_state(adc_channel_t adc_channel, uint16_t raw_value) {
   // if (keys[adc_channel].direction != previous_direction || new_state.distance == 0) {
   //   keys[adc_channel].since = xTaskGetTickCount();
   // }
-
-  keys[adc_channel].state = new_state;
-}
-
-uint8_t get_last_triggered_key_index() {
-  uint8_t last_triggered_key = 255;
-  uint32_t last_triggered_at = 0;
-  for (int i = 0; i < ADC_CHANNEL_COUNT; i++) {
-    if (keys[i].status == STATUS_TRIGGERED) {
-      if (keys[i].triggered_at > last_triggered_at) {
-        last_triggered_at = keys[i].triggered_at;
-        last_triggered_key = i;
-      }
-    }
-  }
-  return last_triggered_key;
 }
 
 void update_keys(void *pvParameters) {
   while (1) {
-    uint8_t last_triggered_key = 255;
-    uint32_t last_triggered_at = 0;
+    static uint8_t should_send_report = 0;
+
+    uint8_t keycodes[6] = { 0 };
+    uint8_t keycodes_length = 0;
 
     for (int i = 0; i < ADC_CHANNEL_COUNT; i++) {
+      update_key_direction(&keys[i]);
+
       switch (keys[i].status) {
       case STATUS_RESET:
         if (keys[i].state.distance >= keys[i].config.actuation_distance) {
           keys[i].status = STATUS_TRIGGERED;
           keys[i].triggered_at = xTaskGetTickCount();
-          if (keys[i].triggered_at > last_triggered_at) {
-            last_triggered_at = keys[i].triggered_at;
-            last_triggered_key = i;
-          }
         }
         break;
       case STATUS_TRIGGERED:
@@ -183,12 +172,21 @@ void update_keys(void *pvParameters) {
       default:
         break;
       }
+
+      if (keys[i].status == STATUS_TRIGGERED) {
+        keycodes[keycodes_length] = keys[i].config.keycode;
+        keycodes_length++;
+      }
     }
 
-    if (last_triggered_key == 255) {
-      hid_send_empty();
+    if (should_send_report) {
+      hid_send_keycodes(*keycodes, keycodes_length);
+    }
+
+    if (keycodes_length > 0) {
+      should_send_report = 1;
     } else {
-      hid_send_key(keys[last_triggered_key].config.keycode);
+      should_send_report = 0;
     }
 
     vTaskDelay(pdMS_TO_TICKS(10));
@@ -220,15 +218,25 @@ void debug_task(void *pvParameters) {
     // printf("start_offset: %2d, ", keys[adc_channel].config.deadzones.start_offset);
     // printf("end_offset: %2d, ", keys[adc_channel].config.deadzones.end_offset);
     // }
-    uint8_t index = get_last_triggered_key_index();
-    if (index != 255) {
-      printf("%3d", index);
-      printf("\n");
-      // hid_send_key(keys[index].config.keycode, 1);
-    }
 
     vTaskDelay(pdMS_TO_TICKS(50));
   }
+}
+
+void update_battery_voltage(uint16_t raw_value) {
+  uint8_t battery_lev = 0;
+  uint16_t voltage = raw_value * 2;
+  // Convert voltage to percentage (assuming 3.0V min, 4.2V max for Li-ion)
+  if (voltage >= 4200) {
+    battery_lev = 100;
+  } else if (voltage <= 3000) {
+    battery_lev = 0;
+  } else {
+    battery_lev = ((voltage - 3000) * 100) / (4200 - 3000);
+  }
+  ESP_LOGI(TAG, "Battery voltage: %dmV", voltage);
+  ESP_LOGI(TAG, "Battery level: %d%%", battery_lev);
+  // Here you can add code to handle low battery warnings or other logic
 }
 
 void app_main(void) {

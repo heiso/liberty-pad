@@ -1,5 +1,5 @@
 idf_component_register(
-  SRCS "liberty-pad.c"
+  SRCS "main.c"
        "sensor.c"
        "hid.c"
        "esp_hidd_prf_api.c"

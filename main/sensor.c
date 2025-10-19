@@ -2,13 +2,12 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "liberty-pad.h"
+#include "main.h"
 #include "sdkconfig.h"
 #include <string.h>
 
 static const char *TAG = "SENSOR";
 
-#define ADC_CHANNEL_COUNT 4
 #define CONVERSION_FRAME_SIZE (SOC_ADC_DIGI_DATA_BYTES_PER_CONV * ADC_CHANNEL_COUNT)
 #define CONVERSION_POOL_SIZE CONVERSION_FRAME_SIZE * 1
 
@@ -18,6 +17,7 @@ adc_continuous_handle_t adc_handle;
 static TaskHandle_t adc_task_handle;
 
 extern void update_key_state(adc_channel_t adc_channel, uint16_t raw_value);
+extern void update_battery_voltage(uint16_t raw_value);
 
 static bool IRAM_ATTR
 on_conversion_done_cb(adc_continuous_handle_t handle,
@@ -90,7 +90,11 @@ void adc_task(void *pvParameters) {
       for (uint8_t adc_channel = 0; adc_channel < ADC_CHANNEL_COUNT;
            adc_channel++) {
         if (conversion_frame->type2.channel == adc_channels[adc_channel]) {
-          update_key_state(adc_channel, conversion_frame->type2.data);
+          if (adc_channels[adc_channel] == ADC_CHANNEL_0) {
+            update_battery_voltage(conversion_frame->type2.data);
+          } else {
+            update_key_state(adc_channel, conversion_frame->type2.data);
+          }
           break;
         }
       }

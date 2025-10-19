@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 
+#define ADC_CHANNEL_COUNT 5
+
 struct switch_magnetic_profile {
   uint8_t id;
   uint16_t adc_reading_by_distance[255];

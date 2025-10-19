@@ -209,6 +209,14 @@ bool hid_is_connected(void) {
   return sec_conn;
 }
 
+esp_err_t hid_send_keycodes(uint8_t keycode, size_t length) {
+  if (sec_conn) {
+    esp_hidd_send_keyboard_value(hid_conn_id, 0, &keycode, length);
+    return ESP_OK;
+  }
+  return ESP_FAIL;
+}
+
 esp_err_t hid_send_key(uint8_t keycode) {
   if (sec_conn) {
     esp_hidd_send_keyboard_value(hid_conn_id, 0, &keycode, 1);
