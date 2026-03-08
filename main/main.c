@@ -5,6 +5,7 @@
 #include "freertos/task.h"
 #include "hid.h"
 #include "sdkconfig.h"
+#include "haptic.h"
 #include "sensor.h"
 #include <stdio.h>
 #include <string.h>
@@ -161,6 +162,7 @@ void update_keys(void *pvParameters) {
         if (keys[i].state.distance >= keys[i].config.actuation_distance) {
           keys[i].status = STATUS_TRIGGERED;
           keys[i].triggered_at = xTaskGetTickCount();
+          haptic_click();
         }
         break;
       case STATUS_TRIGGERED:
@@ -201,9 +203,10 @@ void app_main(void) {
     return;
   }
 
+  haptic_init();
   adc_init();
   init_keys();
 
   xTaskCreate(adc_task, "adc_task", 4096, NULL, 10, NULL);
-  xTaskCreate(update_keys, "update_keys", 2048, NULL, 10, NULL);
+  xTaskCreate(update_keys, "update_keys", 4096, NULL, 10, NULL);
 }

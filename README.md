@@ -34,7 +34,7 @@ Check out the CAD design and start spreading democracy one keypress at a time:
 
 ### Bill Of Material
 
-- 1x Beetle ESP32 C6 Mini (DFR1117)
+- 1x Beetle ESP32 C6 Mini ([DFR1117](https://wiki.dfrobot.com/dfr1117))
 - 4x Hall effect sensor (AH49E - T0-92S)
 - 4x Hall effect keyboard switches
 - 5x M3 screws
